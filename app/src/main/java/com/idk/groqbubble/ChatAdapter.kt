@@ -3,12 +3,15 @@ package com.idk.groqbubble
 import android.graphics.Typeface
 import android.text.SpannableStringBuilder
 import android.text.Spanned
+import android.text.style.BackgroundColorSpan
+import android.text.style.LeadingMarginSpan
 import android.text.style.StyleSpan
 import android.text.style.TypefaceSpan
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
+import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.RecyclerView
 
 class ChatAdapter(private val messages: MutableList<GroqApiClient.ChatMessage>) :
@@ -41,26 +44,40 @@ class ChatAdapter(private val messages: MutableList<GroqApiClient.ChatMessage>) 
 
     private fun formatText(input: String): SpannableStringBuilder {
         val builder = SpannableStringBuilder(input)
+        val textColor = holderColor()
 
-        val markdownRegex = Regex("(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)")
-        markdownRegex.findAll(input).forEach { match ->
-            val content = match.value
+        val fencedCode = Regex("```([\\s\\S]*?)```")
+        fencedCode.findAll(input).forEach { match ->
             val start = match.range.first
             val end = match.range.last + 1
-            when {
-                content.startsWith("**") && content.endsWith("**") -> {
-                    builder.setSpan(StyleSpan(Typeface.BOLD), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                }
-                content.startsWith("*") && content.endsWith("*") -> {
-                    builder.setSpan(StyleSpan(Typeface.ITALIC), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                }
-                content.startsWith("`") && content.endsWith("`") -> {
-                    builder.setSpan(TypefaceSpan("monospace"), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                }
-            }
+            builder.setSpan(BackgroundColorSpan(textColor), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            builder.setSpan(LeadingMarginSpan.Standard(24), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            builder.setSpan(TypefaceSpan("monospace"), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         }
 
-        val latexRegex = Regex("(\$[^$]+\$)")
+        val boldRegex = Regex("(\\*\\*[^*]+\\*\\*)")
+        boldRegex.findAll(input).forEach { match ->
+            val start = match.range.first
+            val end = match.range.last + 1
+            builder.setSpan(StyleSpan(Typeface.BOLD), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+
+        val italicRegex = Regex("(\\*[^*]+\\*)")
+        italicRegex.findAll(input).forEach { match ->
+            val start = match.range.first
+            val end = match.range.last + 1
+            builder.setSpan(StyleSpan(Typeface.ITALIC), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+
+        val inlineCodeRegex = Regex("(`[^`]+`)")
+        inlineCodeRegex.findAll(input).forEach { match ->
+            val start = match.range.first
+            val end = match.range.last + 1
+            builder.setSpan(BackgroundColorSpan(textColor), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            builder.setSpan(TypefaceSpan("monospace"), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+
+        val latexRegex = Regex("(\\$[^$]+\\$)")
         latexRegex.findAll(input).forEach { match ->
             val start = match.range.first
             val end = match.range.last + 1
@@ -68,5 +85,9 @@ class ChatAdapter(private val messages: MutableList<GroqApiClient.ChatMessage>) 
         }
 
         return builder
+    }
+
+    private fun holderColor(): Int {
+        return ContextCompat.getColor(itemView.context, android.R.color.darker_gray)
     }
 }
