@@ -24,15 +24,37 @@
             android:paddingStart="8dp" />
 
         <Spinner
+            android:id="@+id/conversationSpinner"
+            android:layout_width="90dp"
+            android:layout_height="32dp"
+            android:layout_marginEnd="4dp" />
+
+        <Spinner
             android:id="@+id/modelSpinner"
+            android:layout_width="90dp"
+            android:layout_height="32dp"
+            android:layout_marginEnd="4dp" />
+
+        <Button
+            android:id="@+id/newConversationButton"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:minWidth="140dp" />
+            android:layout_height="32dp"
+            android:text="New"
+            android:textSize="10sp"
+            android:layout_marginEnd="4dp" />
+
+        <Button
+            android:id="@+id/saveConversationButton"
+            android:layout_width="wrap_content"
+            android:layout_height="32dp"
+            android:text="Save"
+            android:textSize="10sp"
+            android:layout_marginEnd="4dp" />
 
         <ImageButton
             android:id="@+id/closeButton"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
             android:src="@android:drawable/ic_menu_close_clear_cancel"
             android:background="?android:selectableItemBackgroundBorderless"
             android:contentDescription="Close" />

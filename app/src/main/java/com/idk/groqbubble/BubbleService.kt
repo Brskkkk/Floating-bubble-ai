@@ -9,9 +9,11 @@ import android.os.IBinder
 import android.view.*
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
+import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.Spinner
+import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -150,17 +152,44 @@ class BubbleService : Service() {
         val attachBtn = panelView!!.findViewById<ImageButton>(R.id.attachButton)
         val closeBtn = panelView!!.findViewById<ImageButton>(R.id.closeButton)
         val modelSpinner = panelView!!.findViewById<Spinner>(R.id.modelSpinner)
+        val conversationSpinner = panelView!!.findViewById<Spinner>(R.id.conversationSpinner)
+        val newConversationButton = panelView!!.findViewById<Button>(R.id.newConversationButton)
+        val saveConversationButton = panelView!!.findViewById<Button>(R.id.saveConversationButton)
 
         val options = listOf(GroqApiClient.TEXT_MODEL, GroqApiClient.ALT_TEXT_MODEL, GroqApiClient.VISION_MODEL)
-        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, options)
-        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-        modelSpinner.adapter = adapter
+        val modelAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, options)
+        modelAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        modelSpinner.adapter = modelAdapter
         modelSpinner.setSelection(options.indexOf(app.selectedModel).coerceAtLeast(0))
         modelSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 app.updateSelectedModel(options[position])
             }
             override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+        }
+
+        refreshConversationSpinner(conversationSpinner)
+        conversationSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                val selectedConversation = app.conversations.getOrNull(position) ?: return
+                app.switchConversation(selectedConversation.id)
+                chatAdapter.notifyDataSetChanged()
+                recyclerView?.scrollToPosition(app.conversation.size - 1)
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+        }
+
+        newConversationButton.setOnClickListener {
+            app.createConversation("New chat")
+            refreshConversationSpinner(conversationSpinner)
+            Toast.makeText(this, "Started a new conversation", Toast.LENGTH_SHORT).show()
+            chatAdapter.notifyDataSetChanged()
+        }
+
+        saveConversationButton.setOnClickListener {
+            app.saveCurrentConversation()
+            refreshConversationSpinner(conversationSpinner)
+            Toast.makeText(this, "Conversation saved", Toast.LENGTH_SHORT).show()
         }
 
         sendBtn.setOnClickListener {
@@ -193,14 +222,14 @@ class BubbleService : Service() {
     private fun sendMessage(text: String, imageBase64: String?) {
         val userMessage = GroqApiClient.ChatMessage("user", text, imageBase64)
         app.conversation.add(userMessage)
-        app.persistConversation()
+        app.saveCurrentConversation()
         chatAdapter.notifyItemInserted(app.conversation.size - 1)
         recyclerView?.scrollToPosition(app.conversation.size - 1)
 
         val assistantIndex = app.conversation.size
         val assistantMessage = GroqApiClient.ChatMessage("assistant", "")
         app.conversation.add(assistantMessage)
-        app.persistConversation()
+        app.saveCurrentConversation()
         chatAdapter.notifyItemInserted(assistantIndex)
         recyclerView?.scrollToPosition(assistantIndex)
 
@@ -235,6 +264,15 @@ class BubbleService : Service() {
                 recyclerView?.scrollToPosition(assistantIndex)
             }
         }
+    }
+
+    private fun refreshConversationSpinner(spinner: Spinner) {
+        val titles = app.conversations.map { it.title }
+        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, titles)
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        spinner.adapter = adapter
+        val activeIndex = app.conversations.indexOfFirst { it.id == app.activeConversationId }
+        if (activeIndex >= 0) spinner.setSelection(activeIndex)
     }
 
     private suspend fun maybeSearchWeb(text: String): String? {

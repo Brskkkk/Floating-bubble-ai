@@ -3,10 +3,20 @@ package com.idk.groqbubble
 import android.app.Application
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.UUID
 
 class GroqBubbleApp : Application() {
 
+    data class ChatConversation(
+        val id: String = UUID.randomUUID().toString(),
+        var title: String = "New chat",
+        val messages: MutableList<GroqApiClient.ChatMessage> = mutableListOf()
+    )
+
     val conversation = mutableListOf<GroqApiClient.ChatMessage>()
+    val conversations = mutableListOf<ChatConversation>()
+    var activeConversationId: String? = null
+        private set
 
     lateinit var groqClient: GroqApiClient
         private set
@@ -20,7 +30,7 @@ class GroqBubbleApp : Application() {
         val key = prefs.getString("groq_api_key", "") ?: ""
         selectedModel = prefs.getString("selected_model", GroqApiClient.TEXT_MODEL) ?: GroqApiClient.TEXT_MODEL
         groqClient = GroqApiClient(key, selectedModel)
-        loadConversation(prefs)
+        loadConversations(prefs)
     }
 
     fun updateApiKey(newKey: String) {
@@ -38,40 +48,147 @@ class GroqBubbleApp : Application() {
         persistConversation()
     }
 
-    fun persistConversation() {
-        val prefs = getSharedPreferences("groq_bubble_prefs", MODE_PRIVATE)
-        val json = JSONArray()
-        conversation.forEach { message ->
-            val obj = JSONObject().apply {
-                put("role", message.role)
-                put("text", message.text)
-                if (message.imageBase64 != null) {
-                    put("imageBase64", message.imageBase64)
-                }
-            }
-            json.put(obj)
-        }
-        prefs.edit().putString("conversation", json.toString()).apply()
+    fun createConversation(title: String = "New chat"): ChatConversation {
+        val chatConversation = ChatConversation(title = title.ifBlank { "New chat" })
+        conversations.add(chatConversation)
+        activeConversationId = chatConversation.id
+        conversation.clear()
+        persistConversation()
+        return chatConversation
     }
 
-    private fun loadConversation(prefs: android.content.SharedPreferences) {
-        val raw = prefs.getString("conversation", null) ?: return
-        try {
-            conversation.clear()
-            val array = JSONArray(raw)
-            for (i in 0 until array.length()) {
-                val obj = array.getJSONObject(i)
-                val image = obj.optString("imageBase64", "").takeIf { it.isNotEmpty() }
-                conversation.add(
-                    GroqApiClient.ChatMessage(
-                        role = obj.optString("role", "assistant"),
-                        text = obj.optString("text", ""),
-                        imageBase64 = image
-                    )
-                )
+    fun switchConversation(id: String) {
+        val target = conversations.firstOrNull { it.id == id } ?: return
+        activeConversationId = target.id
+        conversation.clear()
+        conversation.addAll(target.messages)
+        persistConversation()
+    }
+
+    fun saveCurrentConversation() {
+        val active = ensureActiveConversation()
+        active.messages.clear()
+        active.messages.addAll(conversation)
+        if (active.title.isBlank() || active.title == "New chat") {
+            active.title = deriveConversationTitle(conversation)
+        }
+        persistConversation()
+    }
+
+    fun persistConversation() {
+        val prefs = getSharedPreferences("groq_bubble_prefs", MODE_PRIVATE)
+        val active = ensureActiveConversation()
+        active.messages.clear()
+        active.messages.addAll(conversation)
+
+        val conversationsJson = JSONArray()
+        conversations.forEach { chatConversation ->
+            val obj = JSONObject().apply {
+                put("id", chatConversation.id)
+                put("title", chatConversation.title)
+                val messagesJson = JSONArray()
+                chatConversation.messages.forEach { message ->
+                    val messageObj = JSONObject().apply {
+                        put("role", message.role)
+                        put("text", message.text)
+                        if (message.imageBase64 != null) {
+                            put("imageBase64", message.imageBase64)
+                        }
+                    }
+                    messagesJson.put(messageObj)
+                }
+                put("messages", messagesJson)
             }
-        } catch (_: Exception) {
-            conversation.clear()
+            conversationsJson.put(obj)
+        }
+
+        prefs.edit()
+            .putString("conversations", conversationsJson.toString())
+            .putString("active_conversation_id", activeConversationId ?: active.id)
+            .apply()
+    }
+
+    private fun ensureActiveConversation(): ChatConversation {
+        val current = activeConversationId?.let { id -> conversations.firstOrNull { it.id == id } }
+        return if (current != null) {
+            current
+        } else {
+            createConversation("New chat")
+        }
+    }
+
+    private fun deriveConversationTitle(messages: List<GroqApiClient.ChatMessage>): String {
+        val firstUser = messages.firstOrNull { it.role == "user" }?.text?.trim().orEmpty()
+        return if (firstUser.isBlank()) "New chat" else firstUser.take(24).replace(Regex("\\s+"), " ")
+    }
+
+    private fun loadConversations(prefs: android.content.SharedPreferences) {
+        val raw = prefs.getString("conversations", null)
+        if (raw != null) {
+            try {
+                conversations.clear()
+                val array = JSONArray(raw)
+                for (i in 0 until array.length()) {
+                    val obj = array.getJSONObject(i)
+                    val chatConversation = ChatConversation(
+                        id = obj.optString("id", UUID.randomUUID().toString()),
+                        title = obj.optString("title", "New chat")
+                    )
+                    val messagesArray = obj.optJSONArray("messages") ?: JSONArray()
+                    for (j in 0 until messagesArray.length()) {
+                        val messageObj = messagesArray.getJSONObject(j)
+                        val image = messageObj.optString("imageBase64", "").takeIf { it.isNotEmpty() }
+                        chatConversation.messages.add(
+                            GroqApiClient.ChatMessage(
+                                role = messageObj.optString("role", "assistant"),
+                                text = messageObj.optString("text", ""),
+                                imageBase64 = image
+                            )
+                        )
+                    }
+                    conversations.add(chatConversation)
+                }
+                activeConversationId = prefs.getString("active_conversation_id", null)
+                if (activeConversationId == null || conversations.none { it.id == activeConversationId }) {
+                    activeConversationId = conversations.firstOrNull()?.id
+                }
+                conversation.clear()
+                if (activeConversationId != null) {
+                    conversations.firstOrNull { it.id == activeConversationId }?.let { active ->
+                        conversation.addAll(active.messages)
+                    }
+                }
+                return
+            } catch (_: Exception) {
+                conversations.clear()
+            }
+        }
+
+        val legacy = prefs.getString("conversation", null)
+        if (legacy != null) {
+            try {
+                val array = JSONArray(legacy)
+                val chatConversation = ChatConversation(title = "Conversation 1")
+                for (i in 0 until array.length()) {
+                    val obj = array.getJSONObject(i)
+                    val image = obj.optString("imageBase64", "").takeIf { it.isNotEmpty() }
+                    chatConversation.messages.add(
+                        GroqApiClient.ChatMessage(
+                            role = obj.optString("role", "assistant"),
+                            text = obj.optString("text", ""),
+                            imageBase64 = image
+                        )
+                    )
+                }
+                conversations.add(chatConversation)
+                activeConversationId = chatConversation.id
+                conversation.clear()
+                conversation.addAll(chatConversation.messages)
+            } catch (_: Exception) {
+                createConversation("New chat")
+            }
+        } else {
+            createConversation("New chat")
         }
     }
 }

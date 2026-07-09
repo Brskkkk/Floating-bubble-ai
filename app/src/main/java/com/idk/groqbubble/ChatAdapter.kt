@@ -1,6 +1,10 @@
 package com.idk.groqbubble
 
 import android.graphics.Typeface
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.StyleSpan
+import android.text.style.TypefaceSpan
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -29,12 +33,34 @@ class ChatAdapter(private val messages: MutableList<GroqApiClient.ChatMessage>) 
 
     override fun getItemCount() = messages.size
 
-    private fun buildStyledMessage(prefix: String, rawText: String): String {
+    private fun buildStyledMessage(prefix: String, rawText: String): CharSequence {
         val cleaned = rawText.trim().ifEmpty { "..." }
-        return if (prefix == "You") {
-            "$prefix: $cleaned"
-        } else {
-            "$prefix: $cleaned"
+        val displayed = "$prefix: $cleaned"
+        return formatText(displayed)
+    }
+
+    private fun formatText(input: String): SpannableStringBuilder {
+        val builder = SpannableStringBuilder(input)
+        val regex = Regex("(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|\$[^$]+\$)")
+        regex.findAll(input).forEach { match ->
+            val content = match.value
+            val start = match.range.first
+            val end = match.range.last + 1
+            when {
+                content.startsWith("**") && content.endsWith("**") -> {
+                    builder.setSpan(StyleSpan(Typeface.BOLD), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+                content.startsWith("*") && content.endsWith("*") -> {
+                    builder.setSpan(StyleSpan(Typeface.ITALIC), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+                content.startsWith("`") && content.endsWith("`") -> {
+                    builder.setSpan(TypefaceSpan("monospace"), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+                content.startsWith("$") && content.endsWith("$") -> {
+                    builder.setSpan(StyleSpan(Typeface.ITALIC), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+            }
         }
+        return builder
     }
 }
