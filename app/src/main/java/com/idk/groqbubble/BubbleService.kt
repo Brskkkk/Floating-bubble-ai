@@ -7,8 +7,11 @@ import android.graphics.PixelFormat
 import android.os.Build
 import android.os.IBinder
 import android.view.*
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
 import android.widget.EditText
 import android.widget.ImageButton
+import android.widget.Spinner
 import androidx.core.app.NotificationCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -19,9 +22,6 @@ import kotlinx.coroutines.launch
 class BubbleService : Service() {
 
     companion object {
-        // Simple static reference so MainActivity can hand off picked images/files.
-        // Fine for a single-instance overlay service; use a bound service if you need
-        // stricter lifecycle safety later.
         var instance: BubbleService? = null
     }
 
@@ -35,10 +35,7 @@ class BubbleService : Service() {
     private lateinit var chatAdapter: ChatAdapter
     private var recyclerView: RecyclerView? = null
 
-    // Cap how much history we send to Groq each request so long-running chats
-    // don't silently blow past context/rate limits. Memory is intentionally
-    // in-process only — it's fine for it to reset when the service/app dies.
-    private val maxHistoryMessages = 20
+    private val maxHistoryMessages = 8
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -54,9 +51,7 @@ class BubbleService : Service() {
     private fun startForegroundWithNotification() {
         val channelId = "groq_bubble_channel"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                channelId, "Groq Bubble", NotificationManager.IMPORTANCE_MIN
-            )
+            val channel = NotificationChannel(channelId, "Groq Bubble", NotificationManager.IMPORTANCE_MIN)
             (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
                 .createNotificationChannel(channel)
         }
@@ -92,7 +87,6 @@ class BubbleService : Service() {
         }
     }
 
-    /** Drag-to-move behavior for the bubble, with a tap still opening the panel. */
     private fun makeBubbleDraggable() {
         var initialX = 0
         var initialY = 0
@@ -136,9 +130,6 @@ class BubbleService : Service() {
             (resources.displayMetrics.widthPixels * 0.9).toInt(),
             (resources.displayMetrics.heightPixels * 0.65).toInt(),
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            // NOT_TOUCH_MODAL: taps outside the panel still reach apps behind it.
-            // Deliberately NOT setting FLAG_NOT_FOCUSABLE here (unlike the bubble) —
-            // the panel must be focusable or the EditText can never bring up the keyboard.
             WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
         ).apply {
@@ -158,6 +149,19 @@ class BubbleService : Service() {
         val sendBtn = panelView!!.findViewById<ImageButton>(R.id.sendButton)
         val attachBtn = panelView!!.findViewById<ImageButton>(R.id.attachButton)
         val closeBtn = panelView!!.findViewById<ImageButton>(R.id.closeButton)
+        val modelSpinner = panelView!!.findViewById<Spinner>(R.id.modelSpinner)
+
+        val options = listOf(GroqApiClient.TEXT_MODEL, GroqApiClient.ALT_TEXT_MODEL, GroqApiClient.VISION_MODEL)
+        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, options)
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        modelSpinner.adapter = adapter
+        modelSpinner.setSelection(options.indexOf(app.selectedModel).coerceAtLeast(0))
+        modelSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                app.updateSelectedModel(options[position])
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+        }
 
         sendBtn.setOnClickListener {
             val text = input.text.toString().trim()
@@ -168,7 +172,6 @@ class BubbleService : Service() {
         }
 
         attachBtn.setOnClickListener {
-            // Launches MainActivity to pick an image (overlays can't host system pickers directly)
             val pickIntent = Intent(this, MainActivity::class.java).apply {
                 action = "PICK_IMAGE_FOR_BUBBLE"
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
@@ -188,31 +191,59 @@ class BubbleService : Service() {
     }
 
     private fun sendMessage(text: String, imageBase64: String?) {
-        app.conversation.add(GroqApiClient.ChatMessage("user", text, imageBase64))
+        val userMessage = GroqApiClient.ChatMessage("user", text, imageBase64)
+        app.conversation.add(userMessage)
+        app.persistConversation()
         chatAdapter.notifyItemInserted(app.conversation.size - 1)
         recyclerView?.scrollToPosition(app.conversation.size - 1)
 
+        val assistantIndex = app.conversation.size
+        val assistantMessage = GroqApiClient.ChatMessage("assistant", "")
+        app.conversation.add(assistantMessage)
+        app.persistConversation()
+        chatAdapter.notifyItemInserted(assistantIndex)
+        recyclerView?.scrollToPosition(assistantIndex)
+
         scope.launch {
-            // Only send the most recent N messages — the model still "remembers" the
-            // conversation, we just don't ship the entire history forever.
-            val historyToSend = app.conversation.takeLast(maxHistoryMessages)
-            val result = app.groqClient.sendChat(
+            val historyToSend = app.conversation.dropLast(1).takeLast(maxHistoryMessages)
+            val webContext = maybeSearchWeb(text)
+            val prompt = buildString {
+                append("You are a concise, helpful assistant inside a floating chat bubble on Android. Use Markdown and LaTeX when helpful, keep replies short, and avoid repeating the question.")
+                if (webContext != null) {
+                    append("\n\nWeb context:\n$webContext")
+                }
+            }
+
+            val result = app.groqClient.streamChat(
                 historyToSend,
-                systemPrompt = "You are a concise, helpful assistant inside a floating chat bubble on Android."
-            )
-            result.onSuccess { reply ->
-                app.conversation.add(GroqApiClient.ChatMessage("assistant", reply))
-                chatAdapter.notifyItemInserted(app.conversation.size - 1)
-                recyclerView?.scrollToPosition(app.conversation.size - 1)
+                systemPrompt = prompt
+            ) { chunk ->
+                scope.launch {
+                    assistantMessage.text += chunk
+                    app.persistConversation()
+                    chatAdapter.notifyItemChanged(assistantIndex)
+                    recyclerView?.scrollToPosition(assistantIndex)
+                }
+            }
+
+            result.onSuccess {
+                app.persistConversation()
             }.onFailure { err ->
-                app.conversation.add(GroqApiClient.ChatMessage("assistant", "Error: ${err.message}"))
-                chatAdapter.notifyItemInserted(app.conversation.size - 1)
-                recyclerView?.scrollToPosition(app.conversation.size - 1)
+                assistantMessage.text = "Error: ${err.message}"
+                app.persistConversation()
+                chatAdapter.notifyItemChanged(assistantIndex)
+                recyclerView?.scrollToPosition(assistantIndex)
             }
         }
     }
 
-    /** Called externally (e.g. from MainActivity after an image pick or share-intent) */
+    private suspend fun maybeSearchWeb(text: String): String? {
+        val lower = text.lowercase()
+        val shouldSearch = lower.contains("latest") || lower.contains("news") || lower.contains("today") || lower.contains("current") || lower.contains("weather") || lower.contains("price") || lower.contains("search") || lower.contains("who is") || lower.contains("what happened")
+        if (!shouldSearch) return null
+        return app.groqClient.searchWeb(text)
+    }
+
     fun receiveImageMessage(caption: String, base64: String) {
         sendMessage(caption, base64)
     }

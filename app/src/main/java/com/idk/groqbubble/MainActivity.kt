@@ -7,8 +7,12 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.view.View
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
+import android.widget.Spinner
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -20,12 +24,8 @@ class MainActivity : AppCompatActivity() {
         uri?.let { handlePickedImage(it, "What's in this image?") }
     }
 
-    // Android 13 (API 33) made POST_NOTIFICATIONS a runtime permission. Without requesting
-    // it, the foreground-service notification the bubble needs to stay alive may not show.
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) {
-            // Whether granted or not, proceed — the service still runs either way,
-            // it just won't show a visible notification if denied.
             proceedToOverlayCheck()
         }
 
@@ -34,9 +34,22 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         val apiKeyInput = findViewById<EditText>(R.id.apiKeyInput)
+        val modelSpinner = findViewById<Spinner>(R.id.modelSpinner)
         val app = application as GroqBubbleApp
         val prefs = getSharedPreferences("groq_bubble_prefs", MODE_PRIVATE)
         apiKeyInput.setText(prefs.getString("groq_api_key", ""))
+
+        val modelOptions = listOf(GroqApiClient.TEXT_MODEL, GroqApiClient.ALT_TEXT_MODEL, GroqApiClient.VISION_MODEL)
+        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, modelOptions)
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        modelSpinner.adapter = adapter
+        modelSpinner.setSelection(modelOptions.indexOf(app.selectedModel).coerceAtLeast(0))
+        modelSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                app.updateSelectedModel(modelOptions[position])
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+        }
 
         findViewById<Button>(R.id.saveKeyButton).setOnClickListener {
             app.updateApiKey(apiKeyInput.text.toString().trim())
@@ -64,10 +77,8 @@ class MainActivity : AppCompatActivity() {
                 val uri = intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
                 if (uri != null && intent.type?.startsWith("image/") == true) {
                     handlePickedImage(uri, "The user shared this image from another app.")
-                    // Bring the bubble to front / start it if not running
                     requestOverlayPermissionThenStart()
                 } else {
-                    // Non-image file share: just seed a text note into the chat.
                     val text = intent.getStringExtra(Intent.EXTRA_TEXT) ?: "Shared a file."
                     (application as GroqBubbleApp).conversation.add(
                         GroqApiClient.ChatMessage("user", "Shared content: $text")
@@ -83,7 +94,6 @@ class MainActivity : AppCompatActivity() {
         val base64 = app.groqClient.encodeImage(bytes)
         BubbleService.instance?.receiveImageMessage(caption, base64)
             ?: run {
-                // Service not running yet: stash in conversation, it'll show once bubble opens
                 app.conversation.add(GroqApiClient.ChatMessage("user", caption, base64))
             }
         Toast.makeText(this, "Image sent to bubble", Toast.LENGTH_SHORT).show()

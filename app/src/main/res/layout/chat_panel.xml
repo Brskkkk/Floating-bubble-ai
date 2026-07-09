@@ -23,6 +23,12 @@
             android:textSize="16sp"
             android:paddingStart="8dp" />
 
+        <Spinner
+            android:id="@+id/modelSpinner"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minWidth="140dp" />
+
         <ImageButton
             android:id="@+id/closeButton"
             android:layout_width="36dp"

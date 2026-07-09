@@ -3,7 +3,9 @@
     android:id="@+id/messageText"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:padding="10dp"
+    android:padding="12dp"
     android:layout_marginVertical="4dp"
     android:background="@drawable/message_bg"
-    android:textSize="14sp" />
+    android:textSize="14sp"
+    android:lineSpacingExtra="2dp"
+    android:maxWidth="320dp" />
