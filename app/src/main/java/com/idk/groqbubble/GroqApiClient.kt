@@ -1,6 +1,5 @@
 package com.idk.groqbubble
 
-import android.text.Html
 import android.util.Base64
 import androidx.core.text.HtmlCompat
 import kotlinx.coroutines.Dispatchers
@@ -104,7 +103,7 @@ class GroqApiClient(private val apiKey: String, private var selectedModel: Strin
         try {
             val encoded = URLEncoder.encode(query, "UTF-8")
             val request = Request.Builder()
-                .url("https://html.duckduckgo.com/html/?q=$encoded")
+                .url("https://r.jina.ai/http://html.duckduckgo.com/html/?q=$encoded")
                 .header(
                     "User-Agent",
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
@@ -113,17 +112,10 @@ class GroqApiClient(private val apiKey: String, private var selectedModel: Strin
 
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return@withContext null
-                val html = response.body?.string() ?: return@withContext null
-                val pattern = Regex("""<a rel=\"nofollow\" class=\"result__a\" href=\"([^\"]+)\">(.+?)</a>""")
-                val results = pattern.findAll(html).take(3).map { match ->
-                    val title = HtmlCompat.fromHtml(match.groupValues[2], HtmlCompat.FROM_HTML_MODE_LEGACY)
-                        .toString().replace(Regex("\\s+"), " ").trim()
-                    val url = match.groupValues[1]
-                    "$title — $url"
-                }.toList()
-
-                if (results.isEmpty()) return@withContext null
-                results.joinToString("\n")
+                val text = response.body?.string() ?: return@withContext null
+                val lines = text.lines().filter { it.isNotBlank() }.take(8)
+                if (lines.isEmpty()) return@withContext null
+                lines.joinToString("\n")
             }
         } catch (_: Exception) {
             null
