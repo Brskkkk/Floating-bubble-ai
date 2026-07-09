@@ -51,6 +51,22 @@
             android:textSize="10sp"
             android:layout_marginEnd="4dp" />
 
+        <Button
+            android:id="@+id/searchToggleButton"
+            android:layout_width="wrap_content"
+            android:layout_height="32dp"
+            android:text="Web: Off"
+            android:textSize="10sp"
+            android:layout_marginEnd="4dp" />
+
+        <Button
+            android:id="@+id/stopButton"
+            android:layout_width="wrap_content"
+            android:layout_height="32dp"
+            android:text="Stop"
+            android:textSize="10sp"
+            android:layout_marginEnd="4dp" />
+
         <ImageButton
             android:id="@+id/closeButton"
             android:layout_width="32dp"

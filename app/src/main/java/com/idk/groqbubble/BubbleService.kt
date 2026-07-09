@@ -155,6 +155,8 @@ class BubbleService : Service() {
         val conversationSpinner = panelView!!.findViewById<Spinner>(R.id.conversationSpinner)
         val newConversationButton = panelView!!.findViewById<Button>(R.id.newConversationButton)
         val saveConversationButton = panelView!!.findViewById<Button>(R.id.saveConversationButton)
+        val searchToggleButton = panelView!!.findViewById<Button>(R.id.searchToggleButton)
+        val stopButton = panelView!!.findViewById<Button>(R.id.stopButton)
 
         val options = listOf(
             GroqApiClient.TEXT_MODEL,
@@ -200,11 +202,23 @@ class BubbleService : Service() {
             Toast.makeText(this, "Conversation saved", Toast.LENGTH_SHORT).show()
         }
 
+        var webSearchEnabled = false
+        searchToggleButton.setOnClickListener {
+            webSearchEnabled = !webSearchEnabled
+            searchToggleButton.text = if (webSearchEnabled) "Web: On" else "Web: Off"
+            Toast.makeText(this, if (webSearchEnabled) "Web search enabled" else "Web search disabled", Toast.LENGTH_SHORT).show()
+        }
+
+        stopButton.setOnClickListener {
+            stopCurrentReply()
+            Toast.makeText(this, "Stopped current reply", Toast.LENGTH_SHORT).show()
+        }
+
         sendBtn.setOnClickListener {
             val text = input.text.toString().trim()
             if (text.isNotEmpty()) {
                 input.setText("")
-                sendMessage(text, null)
+                sendMessage(text, null, webSearchEnabled)
             }
         }
 
@@ -227,7 +241,9 @@ class BubbleService : Service() {
         recyclerView = null
     }
 
-    private fun sendMessage(text: String, imageBase64: String?) {
+    private var stopRequested = false
+
+    private fun sendMessage(text: String, imageBase64: String?, useWebSearch: Boolean = false) {
         val userMessage = GroqApiClient.ChatMessage("user", text, imageBase64)
         app.conversation.add(userMessage)
         app.saveCurrentConversation()
@@ -241,11 +257,12 @@ class BubbleService : Service() {
         chatAdapter.notifyItemInserted(assistantIndex)
         recyclerView?.scrollToPosition(assistantIndex)
 
+        stopRequested = false
         scope.launch {
             val historyToSend = app.conversation.dropLast(1).takeLast(maxHistoryMessages)
-            val webContext = maybeSearchWeb(text)
+            val webContext = if (useWebSearch) maybeSearchWeb(text) else null
             val prompt = buildString {
-                append("You are a concise, helpful assistant inside a floating chat bubble on Android. Use Markdown and LaTeX when helpful, keep replies short, and avoid repeating the question.")
+                append("You are a floating AI assistant inside an Android bubble app. You can help with text, markdown, LaTeX, code, conversation history, saved conversations, web searches, model switching, and image attachments. You can explain features and limitations clearly. Available actions: save/load conversations, switch chats, switch models, toggle web search, stop a reply, and attach images. Limitations: you cannot truly control the phone UI beyond the app's built-in actions, you cannot guarantee live web data unless the web-search toggle is on and a search succeeds, and you should not claim to have capabilities that the app does not provide.")
                 if (webContext != null) {
                     append("\n\nWeb context:\n$webContext")
                 }
@@ -255,6 +272,7 @@ class BubbleService : Service() {
                 historyToSend,
                 systemPrompt = prompt
             ) { chunk ->
+                if (stopRequested) return@streamChat
                 scope.launch {
                     assistantMessage.text += chunk
                     app.persistConversation()
@@ -264,12 +282,16 @@ class BubbleService : Service() {
             }
 
             result.onSuccess {
-                app.persistConversation()
+                if (!stopRequested) {
+                    app.persistConversation()
+                }
             }.onFailure { err ->
-                assistantMessage.text = "Error: ${err.message}"
-                app.persistConversation()
-                chatAdapter.notifyItemChanged(assistantIndex)
-                recyclerView?.scrollToPosition(assistantIndex)
+                if (!stopRequested) {
+                    assistantMessage.text = "Error: ${err.message}"
+                    app.persistConversation()
+                    chatAdapter.notifyItemChanged(assistantIndex)
+                    recyclerView?.scrollToPosition(assistantIndex)
+                }
             }
         }
     }
@@ -281,6 +303,10 @@ class BubbleService : Service() {
         spinner.adapter = adapter
         val activeIndex = app.conversations.indexOfFirst { it.id == app.activeConversationId }
         if (activeIndex >= 0) spinner.setSelection(activeIndex)
+    }
+
+    private fun stopCurrentReply() {
+        stopRequested = true
     }
 
     private suspend fun maybeSearchWeb(text: String): String? {
