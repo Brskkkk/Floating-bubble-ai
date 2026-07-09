@@ -1,0 +1,226 @@
+package com.idk.groqbubble
+
+import android.app.*
+import android.content.Context
+import android.content.Intent
+import android.graphics.PixelFormat
+import android.os.Build
+import android.os.IBinder
+import android.view.*
+import android.widget.EditText
+import android.widget.ImageButton
+import androidx.core.app.NotificationCompat
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+
+class BubbleService : Service() {
+
+    companion object {
+        // Simple static reference so MainActivity can hand off picked images/files.
+        // Fine for a single-instance overlay service; use a bound service if you need
+        // stricter lifecycle safety later.
+        var instance: BubbleService? = null
+    }
+
+    private lateinit var windowManager: WindowManager
+    private var bubbleView: View? = null
+    private var panelView: View? = null
+    private var bubbleParams: WindowManager.LayoutParams? = null
+
+    private val scope = CoroutineScope(Dispatchers.Main)
+    private lateinit var app: GroqBubbleApp
+    private lateinit var chatAdapter: ChatAdapter
+    private var recyclerView: RecyclerView? = null
+
+    // Cap how much history we send to Groq each request so long-running chats
+    // don't silently blow past context/rate limits. Memory is intentionally
+    // in-process only — it's fine for it to reset when the service/app dies.
+    private val maxHistoryMessages = 20
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onCreate() {
+        super.onCreate()
+        app = application as GroqBubbleApp
+        windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        instance = this
+        startForegroundWithNotification()
+        addBubble()
+    }
+
+    private fun startForegroundWithNotification() {
+        val channelId = "groq_bubble_channel"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                channelId, "Groq Bubble", NotificationManager.IMPORTANCE_MIN
+            )
+            (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
+                .createNotificationChannel(channel)
+        }
+        val notification = NotificationCompat.Builder(this, channelId)
+            .setContentTitle("Groq Bubble active")
+            .setSmallIcon(R.drawable.ic_bubble)
+            .setPriority(NotificationCompat.PRIORITY_MIN)
+            .build()
+        startForeground(1, notification)
+    }
+
+    private fun addBubble() {
+        val inflater = LayoutInflater.from(this)
+        bubbleView = inflater.inflate(R.layout.bubble_view, null)
+
+        bubbleParams = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = 0
+            y = 300
+        }
+
+        windowManager.addView(bubbleView, bubbleParams)
+        makeBubbleDraggable()
+
+        bubbleView?.setOnClickListener {
+            if (panelView == null) showPanel() else hidePanel()
+        }
+    }
+
+    /** Drag-to-move behavior for the bubble, with a tap still opening the panel. */
+    private fun makeBubbleDraggable() {
+        var initialX = 0
+        var initialY = 0
+        var touchX = 0f
+        var touchY = 0f
+        var moved = false
+
+        bubbleView?.setOnTouchListener { view, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    initialX = bubbleParams!!.x
+                    initialY = bubbleParams!!.y
+                    touchX = event.rawX
+                    touchY = event.rawY
+                    moved = false
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = (event.rawX - touchX).toInt()
+                    val dy = (event.rawY - touchY).toInt()
+                    if (kotlin.math.abs(dx) > 10 || kotlin.math.abs(dy) > 10) moved = true
+                    bubbleParams!!.x = initialX + dx
+                    bubbleParams!!.y = initialY + dy
+                    windowManager.updateViewLayout(bubbleView, bubbleParams)
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (!moved) view.performClick()
+                    true
+                }
+                else -> false
+            }
+        }
+    }
+
+    private fun showPanel() {
+        val inflater = LayoutInflater.from(this)
+        panelView = inflater.inflate(R.layout.chat_panel, null)
+
+        val panelParams = WindowManager.LayoutParams(
+            (resources.displayMetrics.widthPixels * 0.9).toInt(),
+            (resources.displayMetrics.heightPixels * 0.65).toInt(),
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            // NOT_TOUCH_MODAL: taps outside the panel still reach apps behind it.
+            // Deliberately NOT setting FLAG_NOT_FOCUSABLE here (unlike the bubble) —
+            // the panel must be focusable or the EditText can never bring up the keyboard.
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.CENTER
+            softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+        }
+
+        recyclerView = panelView!!.findViewById<RecyclerView>(R.id.chatRecyclerView)
+        chatAdapter = ChatAdapter(app.conversation)
+        recyclerView!!.layoutManager = LinearLayoutManager(this)
+        recyclerView!!.adapter = chatAdapter
+        if (app.conversation.isNotEmpty()) {
+            recyclerView!!.scrollToPosition(app.conversation.size - 1)
+        }
+
+        val input = panelView!!.findViewById<EditText>(R.id.messageInput)
+        val sendBtn = panelView!!.findViewById<ImageButton>(R.id.sendButton)
+        val attachBtn = panelView!!.findViewById<ImageButton>(R.id.attachButton)
+        val closeBtn = panelView!!.findViewById<ImageButton>(R.id.closeButton)
+
+        sendBtn.setOnClickListener {
+            val text = input.text.toString().trim()
+            if (text.isNotEmpty()) {
+                input.setText("")
+                sendMessage(text, null)
+            }
+        }
+
+        attachBtn.setOnClickListener {
+            // Launches MainActivity to pick an image (overlays can't host system pickers directly)
+            val pickIntent = Intent(this, MainActivity::class.java).apply {
+                action = "PICK_IMAGE_FOR_BUBBLE"
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            startActivity(pickIntent)
+        }
+
+        closeBtn.setOnClickListener { hidePanel() }
+
+        windowManager.addView(panelView, panelParams)
+    }
+
+    private fun hidePanel() {
+        panelView?.let { windowManager.removeView(it) }
+        panelView = null
+        recyclerView = null
+    }
+
+    private fun sendMessage(text: String, imageBase64: String?) {
+        app.conversation.add(GroqApiClient.ChatMessage("user", text, imageBase64))
+        chatAdapter.notifyItemInserted(app.conversation.size - 1)
+        recyclerView?.scrollToPosition(app.conversation.size - 1)
+
+        scope.launch {
+            // Only send the most recent N messages — the model still "remembers" the
+            // conversation, we just don't ship the entire history forever.
+            val historyToSend = app.conversation.takeLast(maxHistoryMessages)
+            val result = app.groqClient.sendChat(
+                historyToSend,
+                systemPrompt = "You are a concise, helpful assistant inside a floating chat bubble on Android."
+            )
+            result.onSuccess { reply ->
+                app.conversation.add(GroqApiClient.ChatMessage("assistant", reply))
+                chatAdapter.notifyItemInserted(app.conversation.size - 1)
+                recyclerView?.scrollToPosition(app.conversation.size - 1)
+            }.onFailure { err ->
+                app.conversation.add(GroqApiClient.ChatMessage("assistant", "Error: ${err.message}"))
+                chatAdapter.notifyItemInserted(app.conversation.size - 1)
+                recyclerView?.scrollToPosition(app.conversation.size - 1)
+            }
+        }
+    }
+
+    /** Called externally (e.g. from MainActivity after an image pick or share-intent) */
+    fun receiveImageMessage(caption: String, base64: String) {
+        sendMessage(caption, base64)
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        instance = null
+        bubbleView?.let { windowManager.removeView(it) }
+        panelView?.let { windowManager.removeView(it) }
+    }
+}

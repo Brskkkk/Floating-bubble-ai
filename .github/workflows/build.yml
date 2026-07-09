@@ -1,0 +1,42 @@
+name: Build Debug APK
+
+# No Gradle Wrapper is committed to this repo (it requires a binary jar that can't be
+# hand-authored). Instead, gradle/actions/setup-gradle installs a pinned Gradle version
+# on the runner itself and we invoke `gradle` directly instead of `./gradlew`.
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+
+      # ubuntu-latest runners ship Android SDK platforms/build-tools for API 34+ already,
+      # which covers our compileSdk/targetSdk of 34 — no separate Android SDK install step needed.
+      - name: Build debug APK
+        run: gradle assembleDebug --no-daemon --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: groq-bubble-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
