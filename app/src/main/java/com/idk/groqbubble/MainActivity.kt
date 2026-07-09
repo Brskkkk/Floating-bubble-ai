@@ -39,7 +39,15 @@ class MainActivity : AppCompatActivity() {
         val prefs = getSharedPreferences("groq_bubble_prefs", MODE_PRIVATE)
         apiKeyInput.setText(prefs.getString("groq_api_key", ""))
 
-        val modelOptions = listOf(GroqApiClient.TEXT_MODEL, GroqApiClient.ALT_TEXT_MODEL, GroqApiClient.VISION_MODEL)
+        val modelOptions = listOf(
+            GroqApiClient.TEXT_MODEL,
+            GroqApiClient.ALT_TEXT_MODEL,
+            GroqApiClient.VISION_MODEL,
+            "llama-3.1-8b-instant",
+            "llama-3.3-70b-versatile",
+            "meta-llama/llama-4-scout-17b-16e-instruct",
+            "openai/gpt-oss-120b"
+        ).distinct()
         val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, modelOptions)
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         modelSpinner.adapter = adapter

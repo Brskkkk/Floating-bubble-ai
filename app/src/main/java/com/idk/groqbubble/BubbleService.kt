@@ -156,7 +156,15 @@ class BubbleService : Service() {
         val newConversationButton = panelView!!.findViewById<Button>(R.id.newConversationButton)
         val saveConversationButton = panelView!!.findViewById<Button>(R.id.saveConversationButton)
 
-        val options = listOf(GroqApiClient.TEXT_MODEL, GroqApiClient.ALT_TEXT_MODEL, GroqApiClient.VISION_MODEL)
+        val options = listOf(
+            GroqApiClient.TEXT_MODEL,
+            GroqApiClient.ALT_TEXT_MODEL,
+            GroqApiClient.VISION_MODEL,
+            "llama-3.1-8b-instant",
+            "llama-3.3-70b-versatile",
+            "meta-llama/llama-4-scout-17b-16e-instruct",
+            "openai/gpt-oss-120b"
+        ).distinct()
         val modelAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, options)
         modelAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         modelSpinner.adapter = modelAdapter
