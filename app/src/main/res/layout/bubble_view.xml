@@ -7,4 +7,5 @@
     android:background="@drawable/bubble_bg"
     android:padding="12dp"
     android:elevation="8dp"
-    android:contentDescription="AI bubble" />
+    android:contentDescription="AI bubble"
+    android:scaleType="centerInside" />

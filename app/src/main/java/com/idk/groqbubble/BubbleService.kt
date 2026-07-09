@@ -7,7 +7,6 @@ import android.graphics.PixelFormat
 import android.os.Build
 import android.os.IBinder
 import android.view.*
-import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
@@ -37,7 +36,8 @@ class BubbleService : Service() {
     private lateinit var chatAdapter: ChatAdapter
     private var recyclerView: RecyclerView? = null
 
-    private val maxHistoryMessages = 8
+    private var stopRequested = false
+    private val maxHistoryMessages = 12
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -53,12 +53,13 @@ class BubbleService : Service() {
     private fun startForegroundWithNotification() {
         val channelId = "groq_bubble_channel"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(channelId, "Groq Bubble", NotificationManager.IMPORTANCE_MIN)
+            val channel =
+                NotificationChannel(channelId, "Groq Bubble", NotificationManager.IMPORTANCE_MIN)
             (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
                 .createNotificationChannel(channel)
         }
         val notification = NotificationCompat.Builder(this, channelId)
-            .setContentTitle("Groq Bubble active")
+            .setContentTitle("Groq Bubble running")
             .setSmallIcon(R.drawable.ic_bubble)
             .setPriority(NotificationCompat.PRIORITY_MIN)
             .build()
@@ -129,8 +130,8 @@ class BubbleService : Service() {
         panelView = inflater.inflate(R.layout.chat_panel, null)
 
         val panelParams = WindowManager.LayoutParams(
-            (resources.displayMetrics.widthPixels * 0.9).toInt(),
-            (resources.displayMetrics.heightPixels * 0.65).toInt(),
+            (resources.displayMetrics.widthPixels * 0.92).toInt(),
+            (resources.displayMetrics.heightPixels * 0.70).toInt(),
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
@@ -139,7 +140,7 @@ class BubbleService : Service() {
             softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
         }
 
-        recyclerView = panelView!!.findViewById<RecyclerView>(R.id.chatRecyclerView)
+        recyclerView = panelView!!.findViewById(R.id.chatRecyclerView)
         chatAdapter = ChatAdapter(app.conversation)
         recyclerView!!.layoutManager = LinearLayoutManager(this)
         recyclerView!!.adapter = chatAdapter
@@ -150,68 +151,83 @@ class BubbleService : Service() {
         val input = panelView!!.findViewById<EditText>(R.id.messageInput)
         val sendBtn = panelView!!.findViewById<ImageButton>(R.id.sendButton)
         val attachBtn = panelView!!.findViewById<ImageButton>(R.id.attachButton)
-        val closeBtn = panelView!!.findViewById<ImageButton>(R.id.closeButton)
         val modelSpinner = panelView!!.findViewById<Spinner>(R.id.modelSpinner)
         val conversationSpinner = panelView!!.findViewById<Spinner>(R.id.conversationSpinner)
-        val newConversationButton = panelView!!.findViewById<Button>(R.id.newConversationButton)
-        val saveConversationButton = panelView!!.findViewById<Button>(R.id.saveConversationButton)
-        val searchToggleButton = panelView!!.findViewById<Button>(R.id.searchToggleButton)
-        val stopButton = panelView!!.findViewById<Button>(R.id.stopButton)
+        val closeBtn = panelView!!.findViewById<ImageButton>(R.id.closeButton)
+        val stopBtn = panelView!!.findViewById<Button>(R.id.stopButton)
+        val newConvBtn = panelView!!.findViewById<Button>(R.id.newConversationButton)
+        val saveConvBtn = panelView!!.findViewById<Button>(R.id.saveConversationButton)
+        val searchToggleBtn = panelView!!.findViewById<Button>(R.id.searchToggleButton)
 
-        val options = listOf(
-            GroqApiClient.TEXT_MODEL,
-            GroqApiClient.ALT_TEXT_MODEL,
-            GroqApiClient.VISION_MODEL,
-            "llama-3.1-8b-instant",
-            "llama-3.3-70b-versatile",
-            "meta-llama/llama-4-scout-17b-16e-instruct",
-            "openai/gpt-oss-120b"
-        ).distinct()
-        val modelAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, options)
-        modelAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-        modelSpinner.adapter = modelAdapter
-        modelSpinner.setSelection(options.indexOf(app.selectedModel).coerceAtLeast(0))
-        modelSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                app.updateSelectedModel(options[position])
-            }
-            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+        var webSearchEnabled = false
+
+        // Model spinner - fetch dynamically from Groq API
+        scope.launch {
+            val availableModels = app.groqClient.fetchAvailableModels()
+            val modelAdapter = ArrayAdapter(
+                this@BubbleService,
+                android.R.layout.simple_spinner_item,
+                availableModels
+            )
+            modelAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+            modelSpinner.adapter = modelAdapter
+            modelSpinner.setSelection(availableModels.indexOf(app.selectedModel).coerceAtLeast(0))
         }
 
+        modelSpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(
+                parent: android.widget.AdapterView<*>?,
+                view: View?,
+                position: Int,
+                id: Long
+            ) {
+                val selectedModel = parent?.getItemAtPosition(position) as? String ?: return
+                app.updateSelectedModel(selectedModel)
+                Toast.makeText(this@BubbleService, "Switched to $selectedModel", Toast.LENGTH_SHORT).show()
+            }
+
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
+        }
+
+        // Conversation spinner
         refreshConversationSpinner(conversationSpinner)
-        conversationSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                val selectedConversation = app.conversations.getOrNull(position) ?: return
-                app.switchConversation(selectedConversation.id)
-                chatAdapter.notifyDataSetChanged()
-                recyclerView?.scrollToPosition(app.conversation.size - 1)
+        conversationSpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(
+                parent: android.widget.AdapterView<*>?,
+                view: View?,
+                position: Int,
+                id: Long
+            ) {
+                if (app.conversations.isNotEmpty()) {
+                    app.switchConversation(app.conversations[position].id)
+                    chatAdapter.notifyDataSetChanged()
+                    recyclerView?.scrollToPosition(maxOf(0, app.conversation.size - 1))
+                }
             }
-            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
         }
 
-        newConversationButton.setOnClickListener {
-            app.createConversation("New chat")
-            refreshConversationSpinner(conversationSpinner)
-            Toast.makeText(this, "Started a new conversation", Toast.LENGTH_SHORT).show()
+        // New conversation
+        newConvBtn.setOnClickListener {
+            app.createConversation()
+            app.conversation.clear()
             chatAdapter.notifyDataSetChanged()
+            refreshConversationSpinner(conversationSpinner)
+            Toast.makeText(this, "New conversation started", Toast.LENGTH_SHORT).show()
         }
 
-        saveConversationButton.setOnClickListener {
+        // Save conversation
+        saveConvBtn.setOnClickListener {
             app.saveCurrentConversation()
-            refreshConversationSpinner(conversationSpinner)
             Toast.makeText(this, "Conversation saved", Toast.LENGTH_SHORT).show()
         }
 
-        var webSearchEnabled = false
-        searchToggleButton.setOnClickListener {
+        // Web search toggle
+        searchToggleBtn.setOnClickListener {
             webSearchEnabled = !webSearchEnabled
-            searchToggleButton.text = if (webSearchEnabled) "Web: On" else "Web: Off"
+            searchToggleBtn.text = if (webSearchEnabled) "Web: On" else "Web: Off"
             Toast.makeText(this, if (webSearchEnabled) "Web search enabled" else "Web search disabled", Toast.LENGTH_SHORT).show()
-        }
-
-        stopButton.setOnClickListener {
-            stopCurrentReply()
-            Toast.makeText(this, "Stopped current reply", Toast.LENGTH_SHORT).show()
         }
 
         sendBtn.setOnClickListener {
@@ -230,6 +246,11 @@ class BubbleService : Service() {
             startActivity(pickIntent)
         }
 
+        stopBtn.setOnClickListener {
+            stopRequested = true
+            Toast.makeText(this, "Stopping reply...", Toast.LENGTH_SHORT).show()
+        }
+
         closeBtn.setOnClickListener { hidePanel() }
 
         windowManager.addView(panelView, panelParams)
@@ -241,8 +262,6 @@ class BubbleService : Service() {
         recyclerView = null
     }
 
-    private var stopRequested = false
-
     private fun sendMessage(text: String, imageBase64: String?, useWebSearch: Boolean = false) {
         val userMessage = GroqApiClient.ChatMessage("user", text, imageBase64)
         app.conversation.add(userMessage)
@@ -253,42 +272,40 @@ class BubbleService : Service() {
         val assistantIndex = app.conversation.size
         val assistantMessage = GroqApiClient.ChatMessage("assistant", "")
         app.conversation.add(assistantMessage)
-        app.saveCurrentConversation()
         chatAdapter.notifyItemInserted(assistantIndex)
         recyclerView?.scrollToPosition(assistantIndex)
 
         stopRequested = false
         scope.launch {
-            val historyToSend = app.conversation.dropLast(1).takeLast(maxHistoryMessages)
+            val historyToSend =
+                app.conversation.dropLast(1).takeLast(maxHistoryMessages)
+
+            // Get web context if search is enabled
             val webContext = if (useWebSearch) maybeSearchWeb(text) else null
-            val prompt = buildString {
-                append("You are a floating AI assistant inside an Android bubble app. You can help with text, markdown, LaTeX, code, conversation history, saved conversations, web searches, model switching, and image attachments. You can explain features and limitations clearly. Available actions: save/load conversations, switch chats, switch models, toggle web search, stop a reply, and attach images. Limitations: you cannot truly control the phone UI beyond the app's built-in actions, you cannot guarantee live web data unless the web-search toggle is on and a search succeeds, and you should not claim to have capabilities that the app does not provide.")
+            val systemPrompt = buildString {
+                append("You are a helpful AI assistant in a floating chat bubble on Android. Support markdown, code blocks, and LaTeX math. Be concise and clear.")
                 if (webContext != null) {
-                    append("\n\nWeb context:\n$webContext")
+                    append("\n\nCurrent web search results:\n$webContext")
                 }
             }
 
             val result = app.groqClient.streamChat(
                 historyToSend,
-                systemPrompt = prompt
+                systemPrompt = systemPrompt
             ) { chunk ->
                 if (stopRequested) return@streamChat
                 scope.launch {
                     assistantMessage.text += chunk
-                    app.persistConversation()
+                    app.saveCurrentConversation()
                     chatAdapter.notifyItemChanged(assistantIndex)
                     recyclerView?.scrollToPosition(assistantIndex)
                 }
             }
 
-            result.onSuccess {
+            result.onFailure { err ->
                 if (!stopRequested) {
-                    app.persistConversation()
-                }
-            }.onFailure { err ->
-                if (!stopRequested) {
-                    assistantMessage.text = "Error: ${err.message}"
-                    app.persistConversation()
+                    assistantMessage.text = "❌ Error: ${err.message}"
+                    app.saveCurrentConversation()
                     chatAdapter.notifyItemChanged(assistantIndex)
                     recyclerView?.scrollToPosition(assistantIndex)
                 }
@@ -305,13 +322,13 @@ class BubbleService : Service() {
         if (activeIndex >= 0) spinner.setSelection(activeIndex)
     }
 
-    private fun stopCurrentReply() {
-        stopRequested = true
-    }
-
     private suspend fun maybeSearchWeb(text: String): String? {
         val lower = text.lowercase()
-        val shouldSearch = lower.contains("latest") || lower.contains("news") || lower.contains("today") || lower.contains("current") || lower.contains("weather") || lower.contains("price") || lower.contains("search") || lower.contains("who is") || lower.contains("what happened")
+        val shouldSearch = lower.contains("latest") || lower.contains("news") || 
+                          lower.contains("today") || lower.contains("current") || 
+                          lower.contains("weather") || lower.contains("price") ||
+                          lower.contains("search") || lower.contains("who is") ||
+                          lower.contains("what happened")
         if (!shouldSearch) return null
         return app.groqClient.searchWeb(text)
     }

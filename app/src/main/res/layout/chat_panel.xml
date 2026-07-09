@@ -4,91 +4,141 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:background="@drawable/panel_bg"
-    android:elevation="12dp"
-    android:padding="8dp">
+    android:elevation="12dp">
 
+    <!-- Header with title and controls -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingBottom="4dp">
+        android:orientation="vertical"
+        android:paddingHorizontal="8dp"
+        android:paddingVertical="8dp"
+        android:background="#1E1E1E"
+        android:elevation="4dp">
 
-        <TextView
-            android:layout_width="0dp"
+        <!-- Top row: Title -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="36dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Groq Assistant"
+                android:textStyle="bold"
+                android:textSize="16sp"
+                android:textColor="#FFFFFF" />
+
+            <ImageButton
+                android:id="@+id/closeButton"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:src="@android:drawable/ic_menu_close_clear_cancel"
+                android:background="?android:selectableItemBackgroundBorderless"
+                android:contentDescription="Close"
+                android:tint="#FFFFFF" />
+        </LinearLayout>
+
+        <!-- Second row: Spinners and model controls -->
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="Groq Assistant"
-            android:textStyle="bold"
-            android:textSize="16sp"
-            android:paddingStart="8dp" />
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingTop="4dp">
 
-        <Spinner
-            android:id="@+id/conversationSpinner"
-            android:layout_width="90dp"
-            android:layout_height="32dp"
-            android:layout_marginEnd="4dp" />
+            <Spinner
+                android:id="@+id/conversationSpinner"
+                android:layout_width="0dp"
+                android:layout_height="32dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="4dp"
+                android:background="@drawable/spinner_bg" />
 
-        <Spinner
-            android:id="@+id/modelSpinner"
-            android:layout_width="90dp"
-            android:layout_height="32dp"
-            android:layout_marginEnd="4dp" />
+            <Spinner
+                android:id="@+id/modelSpinner"
+                android:layout_width="0dp"
+                android:layout_height="32dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="4dp"
+                android:background="@drawable/spinner_bg" />
+        </LinearLayout>
 
-        <Button
-            android:id="@+id/newConversationButton"
-            android:layout_width="wrap_content"
-            android:layout_height="32dp"
-            android:text="New"
-            android:textSize="10sp"
-            android:layout_marginEnd="4dp" />
+        <!-- Third row: Action buttons -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingTop="4dp">
 
-        <Button
-            android:id="@+id/saveConversationButton"
-            android:layout_width="wrap_content"
-            android:layout_height="32dp"
-            android:text="Save"
-            android:textSize="10sp"
-            android:layout_marginEnd="4dp" />
+            <Button
+                android:id="@+id/newConversationButton"
+                android:layout_width="0dp"
+                android:layout_height="32dp"
+                android:layout_weight="1"
+                android:text="New"
+                android:textSize="9sp"
+                android:paddingHorizontal="4dp"
+                android:layout_marginEnd="2dp"
+                android:backgroundTint="#4CAF50" />
 
-        <Button
-            android:id="@+id/searchToggleButton"
-            android:layout_width="wrap_content"
-            android:layout_height="32dp"
-            android:text="Web: Off"
-            android:textSize="10sp"
-            android:layout_marginEnd="4dp" />
+            <Button
+                android:id="@+id/saveConversationButton"
+                android:layout_width="0dp"
+                android:layout_height="32dp"
+                android:layout_weight="1"
+                android:text="Save"
+                android:textSize="9sp"
+                android:paddingHorizontal="4dp"
+                android:layout_marginEnd="2dp"
+                android:backgroundTint="#6750A4" />
 
-        <Button
-            android:id="@+id/stopButton"
-            android:layout_width="wrap_content"
-            android:layout_height="32dp"
-            android:text="Stop"
-            android:textSize="10sp"
-            android:layout_marginEnd="4dp" />
+            <Button
+                android:id="@+id/searchToggleButton"
+                android:layout_width="0dp"
+                android:layout_height="32dp"
+                android:layout_weight="1"
+                android:text="Web: Off"
+                android:textSize="9sp"
+                android:paddingHorizontal="4dp"
+                android:layout_marginEnd="2dp"
+                android:backgroundTint="#FF9800" />
 
-        <ImageButton
-            android:id="@+id/closeButton"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
-            android:src="@android:drawable/ic_menu_close_clear_cancel"
-            android:background="?android:selectableItemBackgroundBorderless"
-            android:contentDescription="Close" />
+            <Button
+                android:id="@+id/stopButton"
+                android:layout_width="0dp"
+                android:layout_height="32dp"
+                android:layout_weight="1"
+                android:text="Stop"
+                android:textSize="9sp"
+                android:paddingHorizontal="4dp"
+                android:backgroundTint="#FF6B6B" />
+        </LinearLayout>
     </LinearLayout>
 
+    <!-- Chat messages -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/chatRecyclerView"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:paddingHorizontal="4dp" />
+        android:paddingHorizontal="8dp"
+        android:paddingVertical="12dp"
+        android:clipToPadding="false" />
 
+    <!-- Input area -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:paddingTop="4dp">
+        android:paddingHorizontal="8dp"
+        android:paddingVertical="8dp"
+        android:background="#0A0A0A">
 
         <ImageButton
             android:id="@+id/attachButton"
@@ -96,16 +146,24 @@
             android:layout_height="40dp"
             android:src="@android:drawable/ic_menu_gallery"
             android:background="?android:selectableItemBackgroundBorderless"
-            android:contentDescription="Attach image" />
+            android:contentDescription="Attach image"
+            android:tint="#6750A4" />
 
         <EditText
             android:id="@+id/messageInput"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="40dp"
             android:layout_weight="1"
             android:hint="Ask anything..."
-            android:maxLines="4"
-            android:inputType="textMultiLine|textCapSentences" />
+            android:maxLines="2"
+            android:inputType="textMultiLine|textCapSentences"
+            android:paddingHorizontal="12dp"
+            android:paddingVertical="8dp"
+            android:textColor="#FFFFFF"
+            android:textColorHint="#707070"
+            android:background="@drawable/input_bg"
+            android:textSize="14sp"
+            android:layout_marginHorizontal="8dp" />
 
         <ImageButton
             android:id="@+id/sendButton"
@@ -113,6 +171,8 @@
             android:layout_height="40dp"
             android:src="@android:drawable/ic_menu_send"
             android:background="?android:selectableItemBackgroundBorderless"
-            android:contentDescription="Send" />
+            android:contentDescription="Send"
+            android:tint="#4CAF50" />
     </LinearLayout>
+
 </LinearLayout>

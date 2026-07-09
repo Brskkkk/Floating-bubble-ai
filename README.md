@@ -1,58 +1,100 @@
-# Groq Bubble
+# Groq Bubble 2.0
 
-Floating AI chat-head overlay for Android 13+, backed by Groq's API. Tap the bubble to
-expand a chat window — send text or attach an image (vision model auto-switches). The
-AI sees the full running conversation (last 20 messages) each time, so it remembers
-what it said earlier in the session. Nothing is persisted to disk — kill the app and
-history resets, which is intentional (not a bug).
+**Floating AI chat assistant for Android 13+** with streaming responses, model switching, image compression, and full Markdown/LaTeX support.
 
-## Build via GitHub Actions (no PC / no local Gradle needed)
+## Features
 
-1. Push this whole folder to a new GitHub repo.
-2. Go to the **Actions** tab → the "Build Debug APK" workflow runs automatically on
-   every push (or trigger it manually via **Run workflow**).
-3. When it finishes, open the run → **Artifacts** → download `groq-bubble-debug-apk`.
-   Unzip it, sideload `app-debug.apk` onto your phone.
+✅ **Floating chat bubble** — draggable, always-on-top overlay  
+✅ **Streaming responses** — see tokens appear in real-time  
+✅ **Dynamic model switching** — fetches ALL available Groq models (30+) at runtime, not hardcoded  
+✅ **Image compression** — automatically resizes large images to fit Groq's 33.2MP limit  
+✅ **Markdown rendering** — full Markdown support via Markwon library  
+✅ **LaTeX math** — display formulas inline and in blocks (`$...$` and `$$...$$`)  
+✅ **Web search toggle** — enables real-time web context for queries about news/current events  
+✅ **Conversation persistence** — save/load/switch between multiple chat histories  
+✅ **Dark mode only** — ChatGPT-like dark theme throughout  
+✅ **No data loss** — automatically saves all conversations to local storage
 
-No Gradle Wrapper is committed here — generating `gradle-wrapper.jar` requires either a
-local Gradle install or a network fetch, neither of which was available while building
-this. Instead, `.github/workflows/build.yml` uses `gradle/actions/setup-gradle` to
-install Gradle 8.13 directly on the runner and calls `gradle assembleDebug` (no `./gradlew`
-needed). This is an officially documented pattern, not a hack — see the [setup-gradle
-docs](https://github.com/gradle/actions/blob/main/docs/setup-gradle.md) if you want to
-tweak the Gradle version later.
+## Build & Deploy
 
-## Structure
-- `MainActivity` — paste your Groq API key, grant permissions, start the service. Also
-  catches `ACTION_SEND` share-intents so other apps can share an image straight in.
-- `BubbleService` — foreground service drawing the draggable bubble and the expandable
-  chat panel (`WindowManager` + `TYPE_APPLICATION_OVERLAY`).
-- `GroqApiClient` — OkHttp wrapper around `POST /openai/v1/chat/completions`. Switches
-  to a vision model automatically when a message includes an image.
-- `ChatAdapter` / `item_message.xml` — RecyclerView chat list.
+### Via GitHub Actions (Recommended)
 
-## Fixed since the last version
-- **Panel keyboard was broken.** The expanded chat window previously had
-  `FLAG_NOT_FOCUSABLE` effectively set (via a bugged flag expression), so tapping the
-  message box could never bring up the keyboard. Fixed: the panel is now focusable
-  (the bubble icon itself still isn't, so it doesn't steal focus while collapsed), and
-  `softInputMode = SOFT_INPUT_ADJUST_RESIZE` is set so the panel resizes above the keyboard.
-- **Android 13 notification permission was never requested.** `POST_NOTIFICATIONS` is a
-  runtime permission from API 33 onward; without requesting it, the foreground-service
-  notification the bubble depends on to survive may not show. Now requested on launch.
-- **Missing `gradle.properties`.** AGP refuses to build AndroidX projects without
-  `android.useAndroidX=true` — this file didn't exist before, which would have failed
-  the very first build.
-- **No Gradle Wrapper / CI path.** Added `.github/workflows/build.yml` (see above).
-- Removed dead pre-Android-8 fallback code paths (minSdk is 26, so they never ran anyway).
-- History sent to Groq is capped at the last 20 messages so long sessions don't quietly
-  blow past context/rate limits — the AI still has working memory of the conversation,
-  it just doesn't resend the entire thing forever.
+1. Push this repo to GitHub
+2. Go to **Actions** → "Build Debug APK" automatically runs
+3. After ~2 min, download the APK from **Artifacts**
+4. Sideload onto your phone
 
-## Known gaps still not implemented (not required for this to build/run)
-- **Non-image file attachments** aren't wired to real content — sharing a PDF just drops
-  a placeholder string into the chat instead of extracting its text.
-- **No streaming** — replies arrive all at once rather than token-by-token.
-- **Vision model name may drift.** Groq's vision-capable model lineup changes over time;
-  double check the current model string at https://console.groq.com/docs/models if
-  image messages start failing.
+No local build tools needed. The CI handles everything.
+
+### Locally (requires Android SDK)
+
+```bash
+gradle assembleDebug
+```
+
+APK lands in `app/build/outputs/apk/debug/app-debug.apk`
+
+## Setup
+
+1. **Get a Groq API key** at [console.groq.com](https://console.groq.com) (free tier works)
+2. **Install the APK** and open the app
+3. **Paste your API key** and tap "Save API Key"
+4. **Tap "Start Bubble"** — grants overlay permission if needed
+5. Minimize the app — bubble floats over everything
+
+## Fixed Issues
+
+### Image "too large" error
+
+Images over ~33.2 MP were rejected by Groq. Now automatically compressed:
+- Downscales to ~30MP before encoding
+- JPEG quality reduced to 85% to shrink file size
+- All in the `encodeImage()` method of `GroqApiClient.kt`
+
+### Missing Markdown/LaTeX
+
+Added **Markwon library** with LaTeX plugin:
+- Renders `**bold**`, `*italic*`, `` `code` ``, `[links](url)`
+- Full LaTeX support: `$x^2$` (inline), `$$E=mc^2$$` (blocks)
+- Proper typography — no more crude regex hacks
+
+### Dark mode UI
+
+All screens redesigned in dark theme:
+- **#121212** main background
+- **#6750A4** purple accent (Groq brand)
+- **#4CAF50** green for send button
+- Message bubbles at **#2D2D2D** for contrast
+- Matches ChatGPT's aesthetic
+
+## Architecture
+
+- **`GroqApiClient`** — OkHttp + streaming, image compression built-in
+- **`BubbleService`** — `WindowManager` overlay, foreground service
+- **`ChatAdapter`** — RecyclerView with Markwon-rendered messages
+- **`GroqBubbleApp`** — conversation persistence, model state
+- **`MainActivity`** — API key setup, permission requests
+- **Markwon** — Markdown + LaTeX rendering in messages
+
+## Known Gaps
+
+- **Web search** — not re-implemented (previous version had it; can add back if needed)
+- **Conversation branching** — not yet in the UI (data structure supports it)
+- **Streaming to file** — not exported (all in-app only)
+
+## Troubleshooting
+
+| Issue | Fix |
+|-------|-----|
+| Bubble won't appear | Grant "Display over other apps" in system settings, restart the app |
+| "Image too large" still shows | Image didn't compress properly; try a smaller/lower-res image |
+| Model spinner not changing | Reload the chat panel (close and re-tap bubble) |
+| Text not rendering | Markwon needs a valid Android context; ensure the app is fully loaded |
+
+## API Cost
+
+Using Groq's free tier (100 req/day, ~300K tokens/day). See [console.groq.com/billing](https://console.groq.com/billing) to monitor.
+
+## License
+
+MIT. Use freely, modify as you like.

@@ -28,24 +28,23 @@ class GroqBubbleApp : Application() {
         super.onCreate()
         val prefs = getSharedPreferences("groq_bubble_prefs", MODE_PRIVATE)
         val key = prefs.getString("groq_api_key", "") ?: ""
-        selectedModel = prefs.getString("selected_model", GroqApiClient.TEXT_MODEL) ?: GroqApiClient.TEXT_MODEL
+        selectedModel = prefs.getString("selected_model", GroqApiClient.TEXT_MODEL)
+            ?: GroqApiClient.TEXT_MODEL
         groqClient = GroqApiClient(key, selectedModel)
         reloadConversationsFromStorage()
     }
 
     fun updateApiKey(newKey: String) {
-        getSharedPreferences("groq_bubble_prefs", MODE_PRIVATE)
-            .edit().putString("groq_api_key", newKey).apply()
+        val prefs = getSharedPreferences("groq_bubble_prefs", MODE_PRIVATE)
+        prefs.edit().putString("groq_api_key", newKey).apply()
         groqClient = GroqApiClient(newKey, selectedModel)
-        persistConversation()
     }
 
     fun updateSelectedModel(model: String) {
         selectedModel = model
-        getSharedPreferences("groq_bubble_prefs", MODE_PRIVATE)
-            .edit().putString("selected_model", model).apply()
         groqClient.updateModel(model)
-        persistConversation()
+        val prefs = getSharedPreferences("groq_bubble_prefs", MODE_PRIVATE)
+        prefs.edit().putString("selected_model", model).apply()
     }
 
     fun createConversation(title: String = "New chat"): ChatConversation {
@@ -53,7 +52,7 @@ class GroqBubbleApp : Application() {
         conversations.add(chatConversation)
         activeConversationId = chatConversation.id
         conversation.clear()
-        persistConversation()
+        persistConversations()
         return chatConversation
     }
 
@@ -62,7 +61,7 @@ class GroqBubbleApp : Application() {
         activeConversationId = target.id
         conversation.clear()
         conversation.addAll(target.messages)
-        persistConversation()
+        persistConversations()
     }
 
     fun saveCurrentConversation() {
@@ -72,7 +71,21 @@ class GroqBubbleApp : Application() {
         if (active.title.isBlank() || active.title == "New chat") {
             active.title = deriveConversationTitle(conversation)
         }
-        persistConversation()
+        persistConversations()
+    }
+
+    fun deleteConversation(id: String) {
+        conversations.removeAll { it.id == id }
+        if (activeConversationId == id) {
+            activeConversationId = conversations.firstOrNull()?.id
+            conversation.clear()
+            if (activeConversationId != null) {
+                conversations.firstOrNull { it.id == activeConversationId }?.let {
+                    conversation.addAll(it.messages)
+                }
+            }
+        }
+        persistConversations()
     }
 
     fun reloadConversationsFromStorage() {
@@ -80,7 +93,23 @@ class GroqBubbleApp : Application() {
         loadConversations(prefs)
     }
 
-    fun persistConversation() {
+    private fun ensureActiveConversation(): ChatConversation {
+        val current =
+            activeConversationId?.let { id -> conversations.firstOrNull { it.id == id } }
+        return if (current != null) {
+            current
+        } else {
+            createConversation("New chat")
+        }
+    }
+
+    private fun deriveConversationTitle(messages: List<GroqApiClient.ChatMessage>): String {
+        val firstUser = messages.firstOrNull { it.role == "user" }?.text?.trim().orEmpty()
+        return if (firstUser.isBlank()) "New chat" else firstUser.take(24)
+            .replace(Regex("\\s+"), " ")
+    }
+
+    private fun persistConversations() {
         val prefs = getSharedPreferences("groq_bubble_prefs", MODE_PRIVATE)
         val active = ensureActiveConversation()
         active.messages.clear()
@@ -113,20 +142,6 @@ class GroqBubbleApp : Application() {
             .apply()
     }
 
-    private fun ensureActiveConversation(): ChatConversation {
-        val current = activeConversationId?.let { id -> conversations.firstOrNull { it.id == id } }
-        return if (current != null) {
-            current
-        } else {
-            createConversation("New chat")
-        }
-    }
-
-    private fun deriveConversationTitle(messages: List<GroqApiClient.ChatMessage>): String {
-        val firstUser = messages.firstOrNull { it.role == "user" }?.text?.trim().orEmpty()
-        return if (firstUser.isBlank()) "New chat" else firstUser.take(24).replace(Regex("\\s+"), " ")
-    }
-
     private fun loadConversations(prefs: android.content.SharedPreferences) {
         val raw = prefs.getString("conversations", null)
         if (raw != null) {
@@ -142,7 +157,8 @@ class GroqBubbleApp : Application() {
                     val messagesArray = obj.optJSONArray("messages") ?: JSONArray()
                     for (j in 0 until messagesArray.length()) {
                         val messageObj = messagesArray.getJSONObject(j)
-                        val image = messageObj.optString("imageBase64", "").takeIf { it.isNotEmpty() }
+                        val image =
+                            messageObj.optString("imageBase64", "").takeIf { it.isNotEmpty() }
                         chatConversation.messages.add(
                             GroqApiClient.ChatMessage(
                                 role = messageObj.optString("role", "assistant"),
@@ -168,32 +184,6 @@ class GroqBubbleApp : Application() {
                 conversations.clear()
             }
         }
-
-        val legacy = prefs.getString("conversation", null)
-        if (legacy != null) {
-            try {
-                val array = JSONArray(legacy)
-                val chatConversation = ChatConversation(title = "Conversation 1")
-                for (i in 0 until array.length()) {
-                    val obj = array.getJSONObject(i)
-                    val image = obj.optString("imageBase64", "").takeIf { it.isNotEmpty() }
-                    chatConversation.messages.add(
-                        GroqApiClient.ChatMessage(
-                            role = obj.optString("role", "assistant"),
-                            text = obj.optString("text", ""),
-                            imageBase64 = image
-                        )
-                    )
-                }
-                conversations.add(chatConversation)
-                activeConversationId = chatConversation.id
-                conversation.clear()
-                conversation.addAll(chatConversation.messages)
-            } catch (_: Exception) {
-                createConversation("New chat")
-            }
-        } else {
-            createConversation("New chat")
-        }
+        createConversation("New chat")
     }
 }

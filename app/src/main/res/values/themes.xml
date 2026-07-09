@@ -1,12 +1,13 @@
 <resources>
-    <style name="Theme.GroqBubble" parent="Theme.MaterialComponents.DayNight.NoActionBar">
-        <item name="colorPrimary">#8A5CF6</item>
-        <item name="colorPrimaryVariant">#6C3DEB</item>
-        <item name="colorOnPrimary">#FFFFFF</item>
-        <item name="colorSurface">#1E1E1E</item>
-        <item name="colorOnSurface">#F5F5F5</item>
+    <style name="Theme.GroqBubble" parent="Theme.MaterialComponents.NoActionBar.Dark">
+        <item name="colorPrimary">#6750A4</item>
+        <item name="colorPrimaryVariant">#4CAF50</item>
+        <item name="colorSecondary">#4CAF50</item>
+        <item name="colorSecondaryVariant">#388E3C</item>
         <item name="colorBackground">#121212</item>
-        <item name="colorOnBackground">#F5F5F5</item>
-        <item name="android:windowBackground">#121212</item>
+        <item name="colorSurface">#1F1F1F</item>
+        <item name="colorError">#FF6B6B</item>
+        <item name="android:textColorPrimary">#FFFFFF</item>
+        <item name="android:textColorSecondary">#B0B0B0</item>
     </style>
 </resources>

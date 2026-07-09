@@ -7,12 +7,8 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
-import android.view.View
-import android.widget.AdapterView
-import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
-import android.widget.Spinner
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -21,7 +17,7 @@ import androidx.core.content.ContextCompat
 class MainActivity : AppCompatActivity() {
 
     private val imagePicker = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        uri?.let { handlePickedImage(it, "What's in this image?") }
+        uri?.let { handlePickedImage(it, "I attached an image, can you analyze it?") }
     }
 
     private val notificationPermissionLauncher =
@@ -34,37 +30,25 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         val apiKeyInput = findViewById<EditText>(R.id.apiKeyInput)
-        val modelSpinner = findViewById<Spinner>(R.id.modelSpinner)
         val app = application as GroqBubbleApp
         val prefs = getSharedPreferences("groq_bubble_prefs", MODE_PRIVATE)
         apiKeyInput.setText(prefs.getString("groq_api_key", ""))
 
-        val modelOptions = listOf(
-            GroqApiClient.TEXT_MODEL,
-            GroqApiClient.ALT_TEXT_MODEL,
-            GroqApiClient.VISION_MODEL,
-            "llama-3.1-8b-instant",
-            "llama-3.3-70b-versatile",
-            "meta-llama/llama-4-scout-17b-16e-instruct",
-            "openai/gpt-oss-120b"
-        ).distinct()
-        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, modelOptions)
-        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-        modelSpinner.adapter = adapter
-        modelSpinner.setSelection(modelOptions.indexOf(app.selectedModel).coerceAtLeast(0))
-        modelSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                app.updateSelectedModel(modelOptions[position])
-            }
-            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
-        }
-
         findViewById<Button>(R.id.saveKeyButton).setOnClickListener {
-            app.updateApiKey(apiKeyInput.text.toString().trim())
+            val key = apiKeyInput.text.toString().trim()
+            if (key.isEmpty()) {
+                Toast.makeText(this, "Please enter an API key", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            app.updateApiKey(key)
             Toast.makeText(this, "API key saved", Toast.LENGTH_SHORT).show()
         }
 
         findViewById<Button>(R.id.startBubbleButton).setOnClickListener {
+            if (prefs.getString("groq_api_key", "").isNullOrEmpty()) {
+                Toast.makeText(this, "Please save API key first", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
             requestOverlayPermissionThenStart()
         }
 
@@ -85,17 +69,11 @@ class MainActivity : AppCompatActivity() {
     private fun handleIncomingIntent(intent: Intent) {
         when (intent.action) {
             "PICK_IMAGE_FOR_BUBBLE" -> imagePicker.launch("image/*")
-
             Intent.ACTION_SEND -> {
                 val uri = intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
                 if (uri != null && intent.type?.startsWith("image/") == true) {
-                    handlePickedImage(uri, "The user shared this image from another app.")
+                    handlePickedImage(uri, "I shared this image, can you analyze it?")
                     requestOverlayPermissionThenStart()
-                } else {
-                    val text = intent.getStringExtra(Intent.EXTRA_TEXT) ?: "Shared a file."
-                    (application as GroqBubbleApp).conversation.add(
-                        GroqApiClient.ChatMessage("user", "Shared content: $text")
-                    )
                 }
             }
         }
@@ -107,9 +85,12 @@ class MainActivity : AppCompatActivity() {
         val base64 = app.groqClient.encodeImage(bytes)
         BubbleService.instance?.receiveImageMessage(caption, base64)
             ?: run {
-                app.conversation.add(GroqApiClient.ChatMessage("user", caption, base64))
+                app.conversation.add(
+                    GroqApiClient.ChatMessage("user", caption, base64)
+                )
+                app.saveCurrentConversation()
             }
-        Toast.makeText(this, "Image sent to bubble", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "Image sent to bubble!", Toast.LENGTH_SHORT).show()
     }
 
     private fun requestOverlayPermissionThenStart() {
@@ -130,10 +111,14 @@ class MainActivity : AppCompatActivity() {
                 Uri.parse("package:$packageName")
             )
             startActivity(intent)
-            Toast.makeText(this, "Grant overlay permission, then tap Start Bubble again", Toast.LENGTH_LONG).show()
+            Toast.makeText(
+                this,
+                "Grant overlay permission, then tap Start Bubble again",
+                Toast.LENGTH_LONG
+            ).show()
         } else {
             startService(Intent(this, BubbleService::class.java))
-            Toast.makeText(this, "Bubble started", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Bubble started! Minimize this app.", Toast.LENGTH_SHORT).show()
         }
     }
 }

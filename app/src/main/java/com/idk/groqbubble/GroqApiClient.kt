@@ -1,8 +1,10 @@
 package com.idk.groqbubble
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.util.Base64
-import androidx.core.text.HtmlCompat
 import kotlinx.coroutines.Dispatchers
+import java.net.URLEncoder
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -10,12 +12,12 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
-import java.net.URLEncoder
+import java.io.ByteArrayOutputStream
 import java.util.concurrent.TimeUnit
 
 /**
- * Minimal Groq (OpenAI-compatible) chat completions client.
- * It supports streaming replies, web search context, and model switching.
+ * Groq API client with streaming support and automatic image compression.
+ * Large images (>33.2 MP) are compressed to fit Groq's limits before sending.
  */
 class GroqApiClient(private val apiKey: String, private var selectedModel: String = TEXT_MODEL) {
 
@@ -24,6 +26,9 @@ class GroqApiClient(private val apiKey: String, private var selectedModel: Strin
         const val TEXT_MODEL = "openai/gpt-oss-120b"
         const val ALT_TEXT_MODEL = "llama-3.3-70b-versatile"
         const val VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+
+        // Groq limit: 33,177,600 pixels. Safe threshold: ~30MP
+        private const val MAX_PIXELS = 30_000_000
     }
 
     private val client = OkHttpClient.Builder()
@@ -31,10 +36,40 @@ class GroqApiClient(private val apiKey: String, private var selectedModel: Strin
         .readTimeout(120, TimeUnit.SECONDS)
         .build()
 
-    data class ChatMessage(var role: String, var text: String, var imageBase64: String? = null)
+    data class ChatMessage(
+        var role: String,
+        var text: String,
+        var imageBase64: String? = null
+    )
 
     fun updateModel(model: String) {
         selectedModel = model
+    }
+
+    /**
+     * Compress raw image bytes to fit within Groq's pixel limit.
+     * Groq rejects images over 33,177,600 pixels; we target 30MP for safety margin.
+     */
+    fun encodeImage(bytes: ByteArray): String {
+        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return ""
+        val currentPixels = bitmap.width.toLong() * bitmap.height.toLong()
+
+        val scaledBitmap = if (currentPixels > MAX_PIXELS) {
+            // Calculate scale factor to stay under the limit
+            val scale = kotlin.math.sqrt(MAX_PIXELS.toDouble() / currentPixels.toDouble())
+            val newWidth = (bitmap.width * scale).toInt()
+            val newHeight = (bitmap.height * scale).toInt()
+            Bitmap.createScaledBitmap(bitmap, newWidth, newHeight, true)
+        } else {
+            bitmap
+        }
+
+        // Encode to JPEG at 85% quality to reduce size further
+        val stream = ByteArrayOutputStream()
+        scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 85, stream)
+        val compressedBytes = stream.toByteArray()
+
+        return Base64.encodeToString(compressedBytes, Base64.NO_WRAP)
     }
 
     suspend fun streamChat(
@@ -51,7 +86,7 @@ class GroqApiClient(private val apiKey: String, private var selectedModel: Strin
                 put("model", model)
                 put("messages", messagesJson)
                 put("temperature", 0.7)
-                put("max_tokens", 700)
+                put("max_tokens", 1024)
                 put("stream", true)
             }
 
@@ -66,7 +101,8 @@ class GroqApiClient(private val apiKey: String, private var selectedModel: Strin
             client.newCall(request).execute().use { response ->
                 val responseBody = response.body ?: throw Exception("Empty response from Groq")
                 if (!response.isSuccessful) {
-                    throw Exception("Groq API error ${response.code}: ${responseBody.string()}")
+                    val errorText = responseBody.string()
+                    throw Exception("Groq API error ${response.code}: $errorText")
                 }
 
                 val builder = StringBuilder()
@@ -93,15 +129,46 @@ class GroqApiClient(private val apiKey: String, private var selectedModel: Strin
         }
     }
 
-    suspend fun sendChat(history: List<ChatMessage>, systemPrompt: String? = null): Result<String> =
-        withContext(Dispatchers.IO) {
-            val builder = StringBuilder()
-            streamChat(history, systemPrompt) { chunk -> builder.append(chunk) }.map { builder.toString() }
-        }
+    suspend fun sendChat(
+        history: List<ChatMessage>,
+        systemPrompt: String? = null
+    ): Result<String> = withContext(Dispatchers.IO) {
+        val builder = StringBuilder()
+        streamChat(history, systemPrompt) { chunk -> builder.append(chunk) }
+            .map { builder.toString() }
+    }
 
-    suspend fun searchWeb(query: String): String? = withContext(Dispatchers.IO) {
+    /**
+     * Quick web search via Jina.ai (free tier available).
+     * Returns a summary of top results; null if search fails.
+     */
+    suspend fun fetchAvailableModels(): List<String> = withContext(Dispatchers.IO) {
         try {
-            val encoded = URLEncoder.encode(query, "UTF-8")
+            val request = Request.Builder()
+                .url("https://api.groq.com/openai/v1/models")
+                .addHeader("Authorization", "Bearer $apiKey")
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext listOf(TEXT_MODEL)
+                val body = response.body?.string() ?: return@withContext listOf(TEXT_MODEL)
+                val json = JSONObject(body)
+                val data = json.optJSONArray("data") ?: return@withContext listOf(TEXT_MODEL)
+                
+                val models = mutableListOf<String>()
+                for (i in 0 until data.length()) {
+                    val modelObj = data.optJSONObject(i)
+                    val id = modelObj?.optString("id")
+                    if (id != null) models.add(id)
+                }
+                if (models.isEmpty()) listOf(TEXT_MODEL) else models
+            }
+        } catch (e: Exception) {
+            listOf(TEXT_MODEL)
+        }
+    }
+        try {
+            val encoded = java.net.URLEncoder.encode(query, "UTF-8")
             val request = Request.Builder()
                 .url("https://r.jina.ai/http://html.duckduckgo.com/html/?q=$encoded")
                 .header(
@@ -113,7 +180,7 @@ class GroqApiClient(private val apiKey: String, private var selectedModel: Strin
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return@withContext null
                 val text = response.body?.string() ?: return@withContext null
-                val lines = text.lines().filter { it.isNotBlank() }.take(8)
+                val lines = text.lines().filter { it.isNotBlank() }.take(6)
                 if (lines.isEmpty()) return@withContext null
                 lines.joinToString("\n")
             }
@@ -122,8 +189,12 @@ class GroqApiClient(private val apiKey: String, private var selectedModel: Strin
         }
     }
 
-    private fun buildMessagesJson(history: List<ChatMessage>, systemPrompt: String?): JSONArray {
+    private fun buildMessagesJson(
+        history: List<ChatMessage>,
+        systemPrompt: String?
+    ): JSONArray {
         val messagesJson = JSONArray()
+
         if (systemPrompt != null) {
             messagesJson.put(JSONObject().apply {
                 put("role", "system")
@@ -134,6 +205,7 @@ class GroqApiClient(private val apiKey: String, private var selectedModel: Strin
         for (msg in history) {
             val messageObj = JSONObject()
             messageObj.put("role", msg.role)
+
             if (msg.imageBase64 != null) {
                 val contentArray = JSONArray()
                 contentArray.put(JSONObject().apply {
@@ -154,7 +226,4 @@ class GroqApiClient(private val apiKey: String, private var selectedModel: Strin
         }
         return messagesJson
     }
-
-    fun encodeImage(bytes: ByteArray): String =
-        Base64.encodeToString(bytes, Base64.NO_WRAP)
 }

@@ -4,62 +4,73 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:padding="24dp"
-    android:gravity="center_vertical">
+    android:gravity="center"
+    android:background="#121212">
 
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="Groq Bubble"
-        android:textSize="24sp"
+        android:textSize="28sp"
         android:textStyle="bold"
-        android:layout_marginBottom="24dp" />
+        android:textColor="#FFFFFF"
+        android:layout_marginBottom="32dp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Paste your Groq API key below"
+        android:textColor="#B0B0B0"
+        android:layout_marginBottom="12dp" />
 
     <EditText
         android:id="@+id/apiKeyInput"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:hint="Paste your Groq API key"
+        android:layout_height="48dp"
+        android:hint="sk-..."
         android:inputType="textPassword"
-        android:layout_marginBottom="12dp" />
-
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="AI model"
-        android:layout_marginBottom="4dp" />
-
-    <Spinner
-        android:id="@+id/modelSpinner"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="12dp" />
+        android:textColor="#FFFFFF"
+        android:textColorHint="#707070"
+        android:background="#1E1E1E"
+        android:padding="12dp"
+        android:layout_marginBottom="16dp"
+        android:textSize="14sp" />
 
     <Button
         android:id="@+id/saveKeyButton"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="48dp"
         android:text="Save API Key"
-        android:layout_marginBottom="24dp" />
+        android:textColor="#FFFFFF"
+        android:backgroundTint="#6750A4"
+        android:layout_marginBottom="12dp"
+        android:textSize="16sp" />
 
     <Button
         android:id="@+id/startBubbleButton"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="Start Bubble" />
+        android:layout_height="48dp"
+        android:text="Start Bubble"
+        android:textColor="#FFFFFF"
+        android:backgroundTint="#4CAF50"
+        android:textSize="16sp"
+        android:layout_marginBottom="12dp" />
 
     <Button
         android:id="@+id/loadConversationsButton"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="48dp"
         android:text="Load Saved Conversations"
-        android:layout_marginTop="8dp" />
+        android:textColor="#FFFFFF"
+        android:backgroundTint="#FF9800"
+        android:textSize="16sp" />
 
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:text="Tip: minimize this app after starting — the bubble runs as a foreground service and floats over other apps."
+        android:layout_marginTop="32dp"
+        android:text="The bubble will float over all apps. Minimize this to use it."
         android:textSize="12sp"
-        android:alpha="0.6" />
+        android:textColor="#909090" />
 
 </LinearLayout>

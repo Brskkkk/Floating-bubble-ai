@@ -1,10 +1,7 @@
 name: Build Debug APK
 
-# No Gradle Wrapper is committed to this repo (it requires a binary jar that can't be
-# hand-authored). Instead, gradle/actions/setup-gradle installs a pinned Gradle version
-# on the runner itself and we invoke `gradle` directly instead of `./gradlew`.
-
 on:
+  push:
   workflow_dispatch:
 
 permissions:
@@ -28,8 +25,6 @@ jobs:
         with:
           gradle-version: '8.13'
 
-      # ubuntu-latest runners ship Android SDK platforms/build-tools for API 34+ already,
-      # which covers our compileSdk/targetSdk of 34 — no separate Android SDK install step needed.
       - name: Build debug APK
         run: gradle assembleDebug --no-daemon --stacktrace
 
