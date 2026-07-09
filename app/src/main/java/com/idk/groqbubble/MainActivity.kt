@@ -60,6 +60,11 @@ class MainActivity : AppCompatActivity() {
             requestOverlayPermissionThenStart()
         }
 
+        findViewById<Button>(R.id.loadConversationsButton).setOnClickListener {
+            app.reloadConversationsFromStorage()
+            Toast.makeText(this, "Loaded saved conversations", Toast.LENGTH_SHORT).show()
+        }
+
         handleIncomingIntent(intent)
     }
 

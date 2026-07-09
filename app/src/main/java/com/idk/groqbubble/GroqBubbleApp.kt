@@ -30,7 +30,7 @@ class GroqBubbleApp : Application() {
         val key = prefs.getString("groq_api_key", "") ?: ""
         selectedModel = prefs.getString("selected_model", GroqApiClient.TEXT_MODEL) ?: GroqApiClient.TEXT_MODEL
         groqClient = GroqApiClient(key, selectedModel)
-        loadConversations(prefs)
+        reloadConversationsFromStorage()
     }
 
     fun updateApiKey(newKey: String) {
@@ -73,6 +73,11 @@ class GroqBubbleApp : Application() {
             active.title = deriveConversationTitle(conversation)
         }
         persistConversation()
+    }
+
+    fun reloadConversationsFromStorage() {
+        val prefs = getSharedPreferences("groq_bubble_prefs", MODE_PRIVATE)
+        loadConversations(prefs)
     }
 
     fun persistConversation() {

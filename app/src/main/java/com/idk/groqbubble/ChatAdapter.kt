@@ -41,8 +41,9 @@ class ChatAdapter(private val messages: MutableList<GroqApiClient.ChatMessage>) 
 
     private fun formatText(input: String): SpannableStringBuilder {
         val builder = SpannableStringBuilder(input)
-        val regex = Regex("(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|\$[^$]+\$)")
-        regex.findAll(input).forEach { match ->
+
+        val markdownRegex = Regex("(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)")
+        markdownRegex.findAll(input).forEach { match ->
             val content = match.value
             val start = match.range.first
             val end = match.range.last + 1
@@ -56,11 +57,16 @@ class ChatAdapter(private val messages: MutableList<GroqApiClient.ChatMessage>) 
                 content.startsWith("`") && content.endsWith("`") -> {
                     builder.setSpan(TypefaceSpan("monospace"), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
-                content.startsWith("$") && content.endsWith("$") -> {
-                    builder.setSpan(StyleSpan(Typeface.ITALIC), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                }
             }
         }
+
+        val latexRegex = Regex("(\$[^$]+\$)")
+        latexRegex.findAll(input).forEach { match ->
+            val start = match.range.first
+            val end = match.range.last + 1
+            builder.setSpan(StyleSpan(Typeface.ITALIC), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+
         return builder
     }
 }
